@@ -74,6 +74,7 @@ public class Main extends Game {
 
         save = new SaveData();
         skins = new SkinManager(save);
+        skins.loadTextures();
         audio = new AudioManager(save);
 
         setScreen(new TitleScreen(this));
@@ -108,6 +109,7 @@ public class Main extends Game {
         fontLarge.dispose();
         pixel.dispose();
         if (background != null) background.dispose();
+        skins.dispose();
         audio.dispose();
     }
 }

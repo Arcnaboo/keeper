@@ -161,15 +161,31 @@ public class TitleScreen extends ScreenAdapter {
     private void drawDemoCube() {
         Skin s = app.skins.getActive();
         float size = 26f;
-        app.batch.flush();
-        app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
-        app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.55f);
-        app.batch.draw(app.pixel, demoX - size, demoY - size * 0.5f, size * 2f, size * 2f);
-        app.batch.flush();
-        app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        app.batch.setColor(s.body);
-        app.batch.draw(app.pixel, demoX - size * 0.5f, demoY, size, size);
-        app.batch.setColor(Color.WHITE);
+        if (s.texture != null) {
+            // Same anchoring logic as Player.drawTexturedSkin so the menu preview
+            // matches what the player will see in-game.
+            float visual = size * 1.8f;
+            float drawX = demoX - visual * 0.5f;
+            float drawY = (demoY + size * 0.5f) - visual * 0.5f;
+            app.batch.flush();
+            app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+            app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.50f + 0.35f * demoCharge / 0.45f);
+            app.batch.draw(s.texture, drawX - 3f, drawY - 3f, visual + 6f, visual + 6f);
+            app.batch.flush();
+            app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+            app.batch.setColor(Color.WHITE);
+            app.batch.draw(s.texture, drawX, drawY, visual, visual);
+        } else {
+            app.batch.flush();
+            app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+            app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.55f);
+            app.batch.draw(app.pixel, demoX - size, demoY - size * 0.5f, size * 2f, size * 2f);
+            app.batch.flush();
+            app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+            app.batch.setColor(s.body);
+            app.batch.draw(app.pixel, demoX - size * 0.5f, demoY, size, size);
+            app.batch.setColor(Color.WHITE);
+        }
     }
 
     private void drawBackground() {
@@ -299,17 +315,34 @@ public class TitleScreen extends ScreenAdapter {
                 new Color(0.13f, 0.07f, 0.22f, 1f), 0.95f);
             UI.glowRect(app.batch, app.pixel, cx, cy + cellH - 4f, cellW, 4f, border, 0.95f);
 
-            // Preview cube.
+            // Preview cube — use the actual skin sprite when we have one.
             float pcx = cx + 28f, pcy = cy + cellH * 0.5f - 13f;
             if (unlocked) {
-                app.batch.flush();
-                app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
-                app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.55f);
-                app.batch.draw(app.pixel, pcx - 8f, pcy - 8f, 42f, 42f);
+                if (s.texture != null) {
+                    app.batch.flush();
+                    app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+                    app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.4f);
+                    app.batch.draw(s.texture, pcx - 12f, pcy - 12f, 50f, 50f);
+                    app.batch.flush();
+                    app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+                    app.batch.setColor(Color.WHITE);
+                    app.batch.draw(s.texture, pcx - 6f, pcy - 6f, 38f, 38f);
+                } else {
+                    app.batch.flush();
+                    app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+                    app.batch.setColor(s.glow.r, s.glow.g, s.glow.b, 0.55f);
+                    app.batch.draw(app.pixel, pcx - 8f, pcy - 8f, 42f, 42f);
+                    app.batch.flush();
+                    app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+                    app.batch.setColor(s.body);
+                    app.batch.draw(app.pixel, pcx, pcy, 26f, 26f);
+                }
+            } else if (s.texture != null) {
+                // Locked: silhouette the sprite in dark gray so the shape is hinted at.
                 app.batch.flush();
                 app.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-                app.batch.setColor(s.body);
-                app.batch.draw(app.pixel, pcx, pcy, 26f, 26f);
+                app.batch.setColor(0.18f, 0.18f, 0.22f, 1f);
+                app.batch.draw(s.texture, pcx - 6f, pcy - 6f, 38f, 38f);
             } else {
                 app.batch.setColor(0.5f, 0.5f, 0.55f, 1f);
                 app.batch.draw(app.pixel, pcx, pcy, 26f, 26f);

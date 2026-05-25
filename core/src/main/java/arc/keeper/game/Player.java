@@ -1,6 +1,7 @@
 package arc.keeper.game;
 
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.math.MathUtils;
@@ -348,19 +349,73 @@ public class Player {
     /** Draws the cube with squash & stretch, glow, charge halo, and aim arrow. */
     public void draw(SpriteBatch batch, Texture pixel) {
         if (!alive) return;
+        if (skin.texture != null) {
+            drawTexturedSkin(batch);
+        } else {
+            drawProceduralCube(batch, pixel);
+        }
+    }
 
+    /**
+     * Renders the player using a baked PNG skin (the artwork already includes a glow
+     * and eyes). We center the texture on the hitbox center and slightly oversize it
+     * so the glow extends past the collision rectangle — feels juicier and more alive.
+     */
+    private void drawTexturedSkin(SpriteBatch batch) {
+        Texture tex = skin.texture;
+        // The cube body fills roughly 55% of the source image; the remaining 45% is
+        // the soft glow ring. Drawing at 1.8x hitbox makes the cube core read at
+        // hitbox size and lets the glow spill over without enlarging collisions.
+        float visualScale = 1.8f;
+        float baseSize = size * visualScale;
+        float sx = baseSize * squashX;
+        float sy = baseSize * squashY;
+        float drawX = x - sx * 0.5f;
+        float drawY = (y + size * 0.5f) - sy * 0.5f;
+
+        Color glow = skin.glow;
+        float chargeFrac = chargeFraction();
+
+        // Additive charge halo: pulses brighter as the jump charges.
+        if (chargeFrac > 0f || charging) {
+            batch.flush();
+            batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+            float aurora = 1f + 0.35f * chargeFrac;
+            batch.setColor(glow.r, glow.g, glow.b, 0.35f + 0.45f * chargeFrac);
+            batch.draw(tex,
+                drawX - sx * 0.10f * aurora, drawY - sy * 0.10f * aurora,
+                sx * (1f + 0.20f * aurora), sy * (1f + 0.20f * aurora));
+        }
+
+        // Spawn-in flash — full-bright additive overlay that fades over 0.35s.
+        if (spawnFlash > 0f) {
+            batch.flush();
+            batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+            batch.setColor(1f, 1f, 1f, spawnFlash / 0.35f * 0.85f);
+            batch.draw(tex, drawX, drawY, sx, sy);
+        }
+
+        // Main skin sprite — standard alpha blend; the luminance-keyed alpha keeps
+        // the surrounding void of the source PNG cleanly transparent.
+        batch.flush();
+        batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        batch.setColor(Color.WHITE);
+        batch.draw(tex, drawX, drawY, sx, sy);
+    }
+
+    /** Fallback when a skin has no PNG — keeps the game playable even without assets. */
+    private void drawProceduralCube(SpriteBatch batch, Texture pixel) {
         float sx = size * squashX;
         float sy = size * squashY;
         float drawX = x - sx * 0.5f;
-        float drawY = y + (size - sy) * 0.5f - 0.5f; // anchor to feet, then squash from center
-        if (squashY < 1f) drawY = y; // squashing down: keep feet planted
+        float drawY = y + (size - sy) * 0.5f - 0.5f;
+        if (squashY < 1f) drawY = y;
 
-        // Glow halo.
         Color body = skin.body;
         Color glow = skin.glow;
 
         batch.flush();
-        batch.setBlendFunction(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE);
+        batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
         float glowSize = 14f + (charging ? chargeFraction() * 18f : 0f);
         batch.setColor(glow.r, glow.g, glow.b, 0.45f + 0.4f * chargeFraction());
         batch.draw(pixel, drawX - glowSize, drawY - glowSize, sx + glowSize * 2f, sy + glowSize * 2f);
@@ -368,21 +423,16 @@ public class Player {
         batch.draw(pixel, drawX - glowSize * 2f, drawY - glowSize * 2f, sx + glowSize * 4f, sy + glowSize * 4f);
 
         batch.flush();
-        batch.setBlendFunction(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
+        batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        // Spawn-in flash.
         if (spawnFlash > 0f) {
             batch.setColor(1f, 1f, 1f, spawnFlash / 0.35f);
             batch.draw(pixel, drawX - 6f, drawY - 6f, sx + 12f, sy + 12f);
         }
-
-        // Body.
         batch.setColor(body);
         batch.draw(pixel, drawX, drawY, sx, sy);
-        // Highlight along the top edge.
         batch.setColor(1f, 1f, 1f, 0.55f);
         batch.draw(pixel, drawX, drawY + sy - 2f, sx, 2f);
-        // Tiny "eye" facing direction — pure character.
         batch.setColor(0.07f, 0.04f, 0.12f, 1f);
         float eyeX = drawX + sx * (facing > 0 ? 0.62f : 0.22f);
         float eyeY = drawY + sy * 0.62f;
