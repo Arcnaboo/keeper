@@ -1,35 +1,103 @@
 # Thumbkeeper
 
-A [libGDX](https://libgdx.com/) project generated with [gdx-liftoff](https://github.com/libgdx/gdx-liftoff).
+A mobile-first 2D casual puzzle-platformer designed entirely around one-thumb
+gameplay and ultra-fast retry loops. Built on [libGDX](https://libgdx.com/) so
+the same Java codebase runs on Android and desktop (LWJGL3) without changes.
 
-This project was generated with a template including simple application launchers and an `ApplicationAdapter` extension that draws libGDX logo.
+> Hold to charge. Drag to aim. Release to launch.
+> The tower never stops rising — and neither should you.
 
-## Platforms
+## Highlights
 
-- `core`: Main module with the application logic shared by all platforms.
-- `lwjgl3`: Primary desktop platform using LWJGL3; was called 'desktop' in older docs.
-- `android`: Android mobile platform. Needs Android SDK.
+- **One-thumb input** — tap to charge, drag to aim, release to launch. A live
+  trajectory preview shows the predicted arc so timing & angle stay readable.
+- **14 platform/hazard archetypes** — stable, disappearing, moving (H/V),
+  rotating, crumbling, bounce, ice, magnetic, gravity-flip (low-grav pad),
+  teleport pairs, fake, spikes, and rhythmic lasers.
+- **Procedural tower** that respects reachability budgets so jumps are always
+  fair, with difficulty tiers that introduce one new mechanic at a time.
+- **Polished feel** — squash & stretch, particles, trauma-based screen shake,
+  charge glow, fast-trail, slow-mo on near-misses, and a smooth camera that
+  anticipates motion and gently zooms out at high speed.
+- **Procedural neon audio** — every sound (charge tick, jump, land, bounce,
+  teleport, near-miss, death) and the ambient pad are synthesized in real time
+  via a single background `AudioDevice` thread, so the build ships with zero
+  audio assets.
+- **Cosmetic-only monetization-ready skin system** with milestone unlocks
+  (total runs, best height). No pay-to-win mechanics — ever.
+- **Daily challenge** mode seeded by the calendar day, plus persistent
+  high-score / best-height / total-runs tracking via libGDX `Preferences`.
 
-## Gradle
+## Project layout
 
-This project uses [Gradle](https://gradle.org/) to manage dependencies.
-The Gradle wrapper was included, so you can run Gradle tasks using `gradlew.bat` or `./gradlew` commands.
-Useful Gradle tasks and flags:
+| Module    | Purpose                                                |
+| --------- | ------------------------------------------------------ |
+| `core`    | Shared game logic — runs on every backend.             |
+| `lwjgl3`  | Desktop launcher (LWJGL3). Portrait window for parity. |
+| `android` | Android launcher. Forced to portrait, fullscreen.      |
 
-- `--continue`: when using this flag, errors will not stop the tasks from running.
-- `--daemon`: thanks to this flag, Gradle daemon will be used to run chosen tasks.
-- `--offline`: when using this flag, cached dependency archives will be used.
-- `--refresh-dependencies`: this flag forces validation of all dependencies. Useful for snapshot versions.
-- `android:lint`: performs Android project validation.
-- `build`: builds sources and archives of every project.
-- `cleanEclipse`: removes Eclipse project data.
-- `cleanIdea`: removes IntelliJ project data.
-- `clean`: removes `build` folders, which store compiled classes and built archives.
-- `eclipse`: generates Eclipse project data.
-- `idea`: generates IntelliJ project data.
-- `lwjgl3:jar`: builds application's runnable jar, which can be found at `lwjgl3/build/libs`.
-- `lwjgl3:run`: starts the application.
-- `test`: runs unit tests (if any).
+Inside `core/src/main/java/arc/keeper`:
 
-Note that most tasks that are not specific to a single project can be run with `name:` prefix, where the `name` should be replaced with the ID of a specific project.
-For example, `core:clean` removes `build` folder only from the `core` project.
+```
+Main.java               -- Game entry, owns shared GPU + save + audio resources
+Constants.java          -- World size, physics tuning, palette, helpers
+audio/AudioManager.java -- Procedural SFX + ambient pad on AudioDevice thread
+data/                   -- Preferences-backed SaveData, Skin, SkinManager
+fx/                     -- ParticleSystem, ScreenShake
+game/                   -- Player, Tower, Platform, PlatformType
+screens/                -- TitleScreen, GameScreen, UI helpers
+```
+
+## Run on desktop
+
+```bash
+./gradlew lwjgl3:run        # macOS / Linux
+gradlew.bat lwjgl3:run      # Windows
+```
+
+A portrait window (405x720, resizable) opens. Click/tap the screen to charge,
+drag to aim, release to launch. Press `M` to mute audio, `Esc` to return to
+the title screen, `R` to retry from the game-over overlay.
+
+## Run on Android
+
+```bash
+./gradlew android:installDebug android:run
+```
+
+Requires an Android SDK install and a connected device or emulator (configured
+through `local.properties`). The app forces portrait and uses immersive mode.
+
+## Tuning the game feel
+
+Every gameplay knob lives in `core/src/main/java/arc/keeper/Constants.java`.
+Recommended starting points:
+
+| Constant                  | Effect                                       |
+| ------------------------- | -------------------------------------------- |
+| `GRAVITY`                 | Higher = snappier arcs, harder fast falls    |
+| `JUMP_MIN/MAX_IMPULSE`    | Lower bound = small taps, upper = full charge|
+| `JUMP_CHARGE_TIME`        | Time to fully charge a jump                  |
+| `WALL_SLIDE_GRAVITY`      | Lower = stickier wall slides                 |
+| `DEATH_LINE_START_SPEED`  | Initial pressure                             |
+| `DEATH_LINE_RAMP_HEIGHT`  | Player height at which difficulty caps       |
+| `PERFECT_JUMP_BONUS`      | Points per chained max-charge jump           |
+
+Difficulty tiers (which mechanics appear at which height) live in
+`Tower.difficultyFor` and `Tower.pickType` — easy to retune without touching
+gameplay code.
+
+## Roadmap / ideas left in the design doc
+
+- **Tower themes** (more palettes) wired into `SkinManager`.
+- **Optional revive ads** — slot is left open in `Main.audio` / `SaveData`.
+- **Seasonal challenge ladders** — extend `SaveData.recordRun` to push a
+  rolling buffer.
+- **Darkness zones** (limited visibility) — requires a stencil/light mask pass.
+- **True gravity flip** — currently implemented as a low-grav buff so the
+  collision system stays simple; a flipped-gravity variant is a natural follow-up.
+
+## Credits
+
+Built with [libGDX 1.14.1](https://libgdx.com/). All gameplay code under
+`arc.keeper.*` is original.
