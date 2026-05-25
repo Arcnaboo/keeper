@@ -33,7 +33,7 @@ android {
   defaultConfig {
     applicationId 'arc.keeper'
     minSdkVersion 21
-    targetSdkVersion 35
+    targetSdkVersion 36
     versionCode 1
     versionName "1.0"
   }
