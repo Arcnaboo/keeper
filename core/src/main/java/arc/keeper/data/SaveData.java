@@ -20,6 +20,8 @@ public class SaveData {
     private static final String K_AUDIO_ON       = "audioOn";
     private static final String K_DAILY_SEED     = "dailySeed";
     private static final String K_DAILY_BEST     = "dailyBest";
+    private static final String K_PLAYER_NAME    = "playerName";
+    private static final String K_LOCAL_SCORES   = "localHighScores";
 
     private final Preferences prefs;
 
@@ -36,6 +38,9 @@ public class SaveData {
     public boolean isAudioOn()        { return prefs.getBoolean(K_AUDIO_ON, true); }
     public long getDailySeed()        { return prefs.getLong(K_DAILY_SEED, 0L); }
     public int  getDailyBest()        { return prefs.getInteger(K_DAILY_BEST, 0); }
+    public String getPlayerName()     { return HighScoreEntry.sanitizeName(prefs.getString(K_PLAYER_NAME, "ARC")); }
+    /** Raw blob for {@link LocalHighScores}; opaque to callers. */
+    public String getLocalScoresRaw() { return prefs.getString(K_LOCAL_SCORES, ""); }
 
     public boolean isSkinUnlocked(String id) {
         // The default starter skin is always unlocked.
@@ -61,6 +66,16 @@ public class SaveData {
     public void setDaily(long seed, int best) {
         prefs.putLong(K_DAILY_SEED, seed);
         prefs.putInteger(K_DAILY_BEST, best);
+        prefs.flush();
+    }
+
+    public void setPlayerName(String name) {
+        prefs.putString(K_PLAYER_NAME, HighScoreEntry.sanitizeName(name));
+        prefs.flush();
+    }
+
+    public void setLocalScoresRaw(String blob) {
+        prefs.putString(K_LOCAL_SCORES, blob == null ? "" : blob);
         prefs.flush();
     }
 

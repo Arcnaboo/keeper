@@ -18,6 +18,7 @@ import com.badlogic.gdx.utils.viewport.Viewport;
 
 import arc.keeper.Constants;
 import arc.keeper.Main;
+import arc.keeper.data.GlobalHighScores;
 import arc.keeper.fx.ParticleSystem;
 import arc.keeper.fx.ScreenShake;
 import arc.keeper.game.Platform;
@@ -86,6 +87,7 @@ public class GameScreen extends ScreenAdapter {
     private final Rectangle menuBtn  = new Rectangle();
     private final Rectangle retryBtn = new Rectangle();
     private final Rectangle quitBtn  = new Rectangle();
+    private final Rectangle scoresBtn = new Rectangle();
 
     /** Pre-allocated scratch for input - world unprojection. */
     private final Vector3 tmpUnproject = new Vector3();
@@ -134,6 +136,10 @@ public class GameScreen extends ScreenAdapter {
         slowMo = 0f;
         chaseTimer = 0f;
         chaseCooldown = 12f;
+        localRank = 0;
+        globalRank = 0;
+        globalSubmitState = SubmitState.NONE;
+        globalError = null;
     }
 
     @Override
@@ -348,7 +354,39 @@ public class GameScreen extends ScreenAdapter {
         if (dailyChallenge && score > app.save.getDailyBest()) {
             app.save.setDaily(seed, score);
         }
+        // Local: always try - LocalHighScores.submit no-ops if it doesn't qualify.
+        // We use the persisted name; players edit it from the title screen.
+        int h = (int) player.maxY;
+        localRank = app.localScores.submit(app.save.getPlayerName(), score, h);
+        // Global: only submit when the run is worth network round-trip. We
+        // still want everyone's "first run on a fresh DB" to land somewhere
+        // visible, so we use a very low threshold.
+        if (score > 0 && !dailyChallenge) {
+            globalSubmitState = SubmitState.PENDING;
+            app.globalScores.submit(app.save.getPlayerName(), score, h,
+                new GlobalHighScores.SubmitCallback() {
+                    @Override
+                    public void onResult(boolean ok, int rank, String errorMessage) {
+                        if (ok) {
+                            globalSubmitState = SubmitState.OK;
+                            globalRank = rank;
+                        } else {
+                            globalSubmitState = SubmitState.FAIL;
+                            globalError = errorMessage;
+                        }
+                    }
+                });
+        } else {
+            globalSubmitState = SubmitState.SKIPPED;
+        }
     }
+
+    private enum SubmitState { NONE, SKIPPED, PENDING, OK, FAIL }
+
+    private int localRank;
+    private int globalRank;
+    private SubmitState globalSubmitState = SubmitState.NONE;
+    private String globalError;
 
     private boolean recordedGameOver;
 
@@ -647,14 +685,49 @@ public class GameScreen extends ScreenAdapter {
             "BEST " + formatNumber(Math.max(score, app.save.getHighScore())),
             Constants.WORLD_W * 0.5f, Constants.WORLD_H * 0.5f + 18f, Constants.YELLOW);
 
-        retryBtn.set(Constants.WORLD_W * 0.5f - 100f, Constants.WORLD_H * 0.5f - 50f, 200f, 50f);
+        // Leaderboard feedback. Local is synchronous so the rank is ready; global
+        // arrives asynchronously, so we show PENDING / OK / FAIL transitions.
+        String line;
+        Color col = new Color(0.78f, 0.78f, 0.92f, 1f);
+        if (localRank > 0) {
+            line = "LOCAL #" + localRank + " AS " + app.save.getPlayerName();
+            col = Constants.CYAN;
+        } else {
+            line = "PLAYING AS " + app.save.getPlayerName();
+        }
+        UI.drawCentered(app.batch, app.fontSmall, line,
+            Constants.WORLD_W * 0.5f, Constants.WORLD_H * 0.5f - 6f, col);
+
+        String global;
+        Color gc = new Color(0.78f, 0.78f, 0.92f, 1f);
+        switch (globalSubmitState) {
+            case PENDING: global = "SUBMITTING..."; break;
+            case OK:      global = globalRank > 0
+                ? ("GLOBAL #" + globalRank + " - NEW TOP " + GlobalHighScores.CAPACITY + "!")
+                : "GLOBAL SUBMITTED"; gc = globalRank > 0 ? Constants.MAGENTA : gc; break;
+            case FAIL:    global = "GLOBAL OFFLINE"; gc = new Color(0.95f, 0.55f, 0.55f, 1f); break;
+            case SKIPPED: global = dailyChallenge ? "DAILY - NOT SUBMITTED" : "GLOBAL SKIPPED"; break;
+            default:      global = "";
+        }
+        if (!global.isEmpty()) {
+            UI.drawCentered(app.batch, app.fontSmall, global,
+                Constants.WORLD_W * 0.5f, Constants.WORLD_H * 0.5f - 24f, gc);
+        }
+
+        retryBtn.set(Constants.WORLD_W * 0.5f - 100f, Constants.WORLD_H * 0.5f - 70f, 200f, 50f);
         UI.glowRect(app.batch, app.pixel, retryBtn.x, retryBtn.y, retryBtn.width, retryBtn.height,
             Constants.CYAN, 0.95f);
         UI.drawCentered(app.batch, app.fontMedium, "RETRY",
             retryBtn.x + retryBtn.width * 0.5f, retryBtn.y + retryBtn.height * 0.5f,
             new Color(0.05f, 0.04f, 0.10f, 1f));
 
-        quitBtn.set(Constants.WORLD_W * 0.5f - 100f, Constants.WORLD_H * 0.5f - 110f, 200f, 40f);
+        scoresBtn.set(Constants.WORLD_W * 0.5f - 100f, Constants.WORLD_H * 0.5f - 124f, 200f, 40f);
+        UI.glowRect(app.batch, app.pixel, scoresBtn.x, scoresBtn.y, scoresBtn.width, scoresBtn.height,
+            new Color(0.22f, 0.10f, 0.38f, 1f), 0.9f);
+        UI.drawCentered(app.batch, app.fontSmall, "VIEW SCORES",
+            scoresBtn.x + scoresBtn.width * 0.5f, scoresBtn.y + scoresBtn.height * 0.5f, Constants.YELLOW);
+
+        quitBtn.set(Constants.WORLD_W * 0.5f - 100f, Constants.WORLD_H * 0.5f - 174f, 200f, 40f);
         UI.glowRect(app.batch, app.pixel, quitBtn.x, quitBtn.y, quitBtn.width, quitBtn.height,
             new Color(0.20f, 0.10f, 0.30f, 1f), 0.85f);
         UI.drawCentered(app.batch, app.fontSmall, "BACK TO MENU",
@@ -704,12 +777,17 @@ public class GameScreen extends ScreenAdapter {
             tmpUnproject.set(screenX, screenY, 0f);
             uiViewport.unproject(tmpUnproject);
 
-            // GAME_OVER state - only the two buttons respond.
+            // GAME_OVER state - only the overlay buttons respond.
             if (state == State.GAME_OVER) {
                 if (retryBtn.contains(tmpUnproject.x, tmpUnproject.y)) {
                     app.audio.playMenuClick();
                     recordedGameOver = false;
                     reset();
+                    return true;
+                }
+                if (scoresBtn.contains(tmpUnproject.x, tmpUnproject.y)) {
+                    app.audio.playMenuClick();
+                    app.switchScreen(new HighScoresScreen(app));
                     return true;
                 }
                 if (quitBtn.contains(tmpUnproject.x, tmpUnproject.y)) {

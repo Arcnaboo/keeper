@@ -27,6 +27,12 @@ the same Java codebase runs on Android and desktop (LWJGL3) without changes.
   (total runs, best height). No pay-to-win mechanics — ever.
 - **Daily challenge** mode seeded by the calendar day, plus persistent
   high-score / best-height / total-runs tracking via libGDX `Preferences`.
+- **Local + global leaderboards** — the top 10 per-device runs are stored in
+  `Preferences`; the top 10 *globally* live in a Postgres table on Neon, talked
+  to via the Neon SQL-over-HTTP endpoint on a background thread (no JDBC, no
+  native dependency). The global table is auto-created and seeded with ten
+  `Arc` defaults (5000, 10000, ... 50000) on first connect, so the leaderboard
+  is never empty.
 
 ## Project layout
 
@@ -42,10 +48,11 @@ Inside `core/src/main/java/arc/keeper`:
 Main.java               -- Game entry, owns shared GPU + save + audio resources
 Constants.java          -- World size, physics tuning, palette, helpers
 audio/AudioManager.java -- Procedural SFX + ambient pad on AudioDevice thread
-data/                   -- Preferences-backed SaveData, Skin, SkinManager
+data/                   -- SaveData, Skin/SkinManager, LocalHighScores,
+                           GlobalHighScores (Neon Postgres on a background thread)
 fx/                     -- ParticleSystem, ScreenShake
 game/                   -- Player, Tower, Platform, PlatformType
-screens/                -- TitleScreen, GameScreen, UI helpers
+screens/                -- TitleScreen, GameScreen, HighScoresScreen, UI helpers
 ```
 
 ## Run on desktop
@@ -67,6 +74,17 @@ the title screen, `R` to retry from the game-over overlay.
 
 Requires an Android SDK install and a connected device or emulator (configured
 through `local.properties`). The app forces portrait and uses immersive mode.
+
+## Global leaderboard
+
+`GlobalHighScores` POSTs SQL to Neon's `/sql` HTTPS endpoint on a single daemon
+background thread — no JDBC, no native dependency. On first connect it runs
+`CREATE TABLE IF NOT EXISTS highscores ...` and seeds ten default `Arc` rows
+(5000, 10000, ... 50000) if the table is empty. The Neon connection string is
+hardcoded in `GlobalHighScores.NEON_URL`; replace it (and rotate the password)
+if you fork the game. Players pick a name from the title screen — it's
+uppercased, stripped of control characters, and capped at 12 chars by
+`HighScoreEntry.sanitizeName` before being sent to the database.
 
 ## Tuning the game feel
 

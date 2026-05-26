@@ -1,6 +1,7 @@
 package arc.keeper.screens;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.ScreenAdapter;
 import com.badlogic.gdx.graphics.Color;
@@ -15,6 +16,7 @@ import com.badlogic.gdx.utils.viewport.Viewport;
 
 import arc.keeper.Constants;
 import arc.keeper.Main;
+import arc.keeper.data.HighScoreEntry;
 import arc.keeper.data.Skin;
 import arc.keeper.fx.ParticleSystem;
 
@@ -36,14 +38,28 @@ public class TitleScreen extends ScreenAdapter {
     private float demoX = Constants.WORLD_W * 0.5f;
     private float demoVX = 0f;
 
-    private final Rectangle playBtn  = new Rectangle();
-    private final Rectangle dailyBtn = new Rectangle();
-    private final Rectangle skinBtn  = new Rectangle();
-    private final Rectangle audioBtn = new Rectangle();
+    private final Rectangle playBtn   = new Rectangle();
+    private final Rectangle dailyBtn  = new Rectangle();
+    private final Rectangle scoresBtn = new Rectangle();
+    private final Rectangle nameBtn   = new Rectangle();
+    private final Rectangle skinBtn   = new Rectangle();
+    private final Rectangle audioBtn  = new Rectangle();
 
     private boolean skinPickerOpen;
     private final Rectangle[] skinCells = new Rectangle[10];
     private final Rectangle skinClose = new Rectangle();
+
+    /**
+     * In-game name editor state. We don't use {@link com.badlogic.gdx.Input#getTextInput}
+     * because on LWJGL3 / Windows that opens a Swing JOptionPane which routinely pops
+     * behind the GLFW window. An in-engine overlay also gives us identical visuals on
+     * Android and a clear OK / CANCEL flow.
+     */
+    private boolean nameEditorOpen;
+    private final StringBuilder nameDraft = new StringBuilder(HighScoreEntry.MAX_NAME_LENGTH);
+    private final Rectangle nameOkBtn     = new Rectangle();
+    private final Rectangle nameCancelBtn = new Rectangle();
+    private final Rectangle nameClearBtn  = new Rectangle();
 
     private final Vector3 tmp = new Vector3();
     private TextureRegion bgRegion;
@@ -62,7 +78,11 @@ public class TitleScreen extends ScreenAdapter {
                 tmp.set(screenX, screenY, 0f);
                 viewport.unproject(tmp);
                 float x = tmp.x, y = tmp.y;
-                if (skinPickerOpen) return handleSkinPickerTouch(x, y);
+
+                // Modal layers first: name editor swallows everything else.
+                if (nameEditorOpen)  return handleNameEditorTouch(x, y);
+                if (skinPickerOpen)  return handleSkinPickerTouch(x, y);
+
                 if (playBtn.contains(x, y)) {
                     app.audio.playMenuClick();
                     app.switchScreen(new GameScreen(app, false));
@@ -71,6 +91,16 @@ public class TitleScreen extends ScreenAdapter {
                 if (dailyBtn.contains(x, y)) {
                     app.audio.playMenuClick();
                     app.switchScreen(new GameScreen(app, true));
+                    return true;
+                }
+                if (scoresBtn.contains(x, y)) {
+                    app.audio.playMenuClick();
+                    app.switchScreen(new HighScoresScreen(app));
+                    return true;
+                }
+                if (nameBtn.contains(x, y)) {
+                    app.audio.playMenuClick();
+                    openNameEditor();
                     return true;
                 }
                 if (skinBtn.contains(x, y)) {
@@ -84,6 +114,33 @@ public class TitleScreen extends ScreenAdapter {
                     return true;
                 }
                 return false;
+            }
+
+            @Override
+            public boolean keyDown(int keycode) {
+                if (!nameEditorOpen) return false;
+                if (keycode == Input.Keys.ESCAPE) { closeNameEditor(false); return true; }
+                if (keycode == Input.Keys.ENTER || keycode == Input.Keys.NUMPAD_ENTER) {
+                    closeNameEditor(true); return true;
+                }
+                if (keycode == Input.Keys.BACKSPACE || keycode == Input.Keys.FORWARD_DEL) {
+                    if (nameDraft.length() > 0) nameDraft.deleteCharAt(nameDraft.length() - 1);
+                    return true;
+                }
+                return true; // swallow other keys while editing
+            }
+
+            @Override
+            public boolean keyTyped(char character) {
+                if (!nameEditorOpen) return false;
+                // Filter to printable, non-control, non-pipe (pipe is our local-prefs delimiter).
+                if (character < 0x20 || character == 0x7F) return true;
+                if (character == '\n' || character == '\r' || character == '\b' || character == '\t') return true;
+                if (character == '|') return true;
+                if (nameDraft.length() < HighScoreEntry.MAX_NAME_LENGTH) {
+                    nameDraft.append(Character.toUpperCase(character));
+                }
+                return true;
             }
         });
         app.audio.setMusicIntensity(0.10f);
@@ -247,7 +304,7 @@ public class TitleScreen extends ScreenAdapter {
     private void drawMenu() {
         // Big play button.
         float pulse = 0.94f + 0.06f * (float) Math.sin(time * 3f);
-        playBtn.set(Constants.WORLD_W * 0.5f - 110f, 240f, 220f, 70f);
+        playBtn.set(Constants.WORLD_W * 0.5f - 110f, 270f, 220f, 70f);
         Color base = new Color(Constants.CYAN).lerp(Constants.MAGENTA, 0.4f);
         UI.glowRect(app.batch, app.pixel, playBtn.x, playBtn.y, playBtn.width, playBtn.height,
             base, pulse);
@@ -255,7 +312,7 @@ public class TitleScreen extends ScreenAdapter {
             playBtn.x + playBtn.width * 0.5f, playBtn.y + playBtn.height * 0.5f,
             new Color(0.04f, 0.02f, 0.08f, 1f));
 
-        dailyBtn.set(Constants.WORLD_W * 0.5f - 90f, 180f, 180f, 42f);
+        dailyBtn.set(Constants.WORLD_W * 0.5f - 90f, 215f, 180f, 42f);
         UI.glowRect(app.batch, app.pixel, dailyBtn.x, dailyBtn.y, dailyBtn.width, dailyBtn.height,
             new Color(0.25f, 0.13f, 0.40f, 1f), 0.95f);
         UI.drawCentered(app.batch, app.fontSmall, "DAILY CHALLENGE",
@@ -264,9 +321,35 @@ public class TitleScreen extends ScreenAdapter {
         if (app.save.getDailyBest() > 0) {
             UI.drawCentered(app.batch, app.fontSmall,
                 "DAILY BEST  " + String.format("%,d", app.save.getDailyBest()),
-                Constants.WORLD_W * 0.5f, dailyBtn.y - 16f,
+                Constants.WORLD_W * 0.5f, dailyBtn.y - 14f,
                 new Color(0.85f, 0.85f, 0.85f, 0.7f));
         }
+
+        scoresBtn.set(Constants.WORLD_W * 0.5f - 90f, 145f, 180f, 42f);
+        Color scoresBg = new Color(Constants.CYAN).lerp(Constants.MAGENTA, 0.6f);
+        scoresBg.r *= 0.45f; scoresBg.g *= 0.30f; scoresBg.b *= 0.55f;
+        UI.glowRect(app.batch, app.pixel, scoresBtn.x, scoresBtn.y, scoresBtn.width, scoresBtn.height,
+            scoresBg, 0.95f);
+        UI.drawCentered(app.batch, app.fontSmall, "HIGH SCORES",
+            scoresBtn.x + scoresBtn.width * 0.5f, scoresBtn.y + scoresBtn.height * 0.5f,
+            Constants.MAGENTA);
+
+        // Name editor (tappable) below high scores. Drawn as a clear pill with
+        // an "EDIT >" hint so it's obviously interactive - this is the only way
+        // to change the leaderboard name once you've launched into a session.
+        nameBtn.set(Constants.WORLD_W * 0.5f - 110f, 90f, 220f, 44f);
+        float namePulse = 0.85f + 0.10f * (float) Math.sin(time * 2.2f);
+        UI.glowRect(app.batch, app.pixel, nameBtn.x, nameBtn.y, nameBtn.width, nameBtn.height,
+            new Color(0.18f, 0.10f, 0.32f, 1f), namePulse);
+        UI.drawCentered(app.batch, app.fontSmall, "NAME",
+            nameBtn.x + 26f, nameBtn.y + nameBtn.height * 0.5f,
+            new Color(0.7f, 0.7f, 0.85f, 0.9f));
+        UI.drawCentered(app.batch, app.fontMedium, app.save.getPlayerName(),
+            nameBtn.x + nameBtn.width * 0.5f + 6f, nameBtn.y + nameBtn.height * 0.5f,
+            Constants.CYAN);
+        UI.drawCentered(app.batch, app.fontSmall, "EDIT >",
+            nameBtn.x + nameBtn.width - 32f, nameBtn.y + nameBtn.height * 0.5f,
+            Constants.YELLOW);
 
         // Skin & audio: bottom corners.
         skinBtn.set(20f, 30f, 110f, 42f);
@@ -281,6 +364,22 @@ public class TitleScreen extends ScreenAdapter {
         UI.drawCentered(app.batch, app.fontSmall, app.audio.isMuted() ? "AUDIO OFF" : "AUDIO ON",
             audioBtn.x + audioBtn.width * 0.5f, audioBtn.y + audioBtn.height * 0.5f,
             app.audio.isMuted() ? new Color(0.8f, 0.6f, 0.6f, 1f) : Constants.CYAN);
+    }
+
+    /**
+     * Pops the native text-input dialog (libGDX wraps Android dialog / Swing
+     * on desktop). Stored name is uppercased + length-capped so global rows
+     * stay consistent across submissions.
+     */
+    private void promptForName() {
+        Gdx.input.getTextInput(new com.badlogic.gdx.Input.TextInputListener() {
+            @Override
+            public void input(String text) {
+                String sanitized = HighScoreEntry.sanitizeName(text);
+                app.save.setPlayerName(sanitized);
+            }
+            @Override public void canceled() {}
+        }, "Set leaderboard name", app.save.getPlayerName(), "Up to " + HighScoreEntry.MAX_NAME_LENGTH + " chars");
     }
 
     private void drawSkinPicker() {

@@ -14,6 +14,8 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
 import arc.keeper.audio.AudioManager;
+import arc.keeper.data.GlobalHighScores;
+import arc.keeper.data.LocalHighScores;
 import arc.keeper.data.SaveData;
 import arc.keeper.data.SkinManager;
 import arc.keeper.screens.TitleScreen;
@@ -39,6 +41,8 @@ public class Main extends Game {
     public SaveData save;
     public SkinManager skins;
     public AudioManager audio;
+    public LocalHighScores localScores;
+    public GlobalHighScores globalScores;
 
     @Override
     public void create() {
@@ -76,6 +80,10 @@ public class Main extends Game {
         skins = new SkinManager(save);
         skins.loadTextures();
         audio = new AudioManager(save);
+        localScores = new LocalHighScores(save);
+        // Constructs the IO thread and kicks off the initial connect/seed/load.
+        // Safe to instantiate before there's a network — UI just shows "OFFLINE".
+        globalScores = new GlobalHighScores();
 
         setScreen(new TitleScreen(this));
     }
@@ -111,5 +119,6 @@ public class Main extends Game {
         if (background != null) background.dispose();
         skins.dispose();
         audio.dispose();
+        if (globalScores != null) globalScores.dispose();
     }
 }
