@@ -147,7 +147,10 @@ public class TitleScreen extends ScreenAdapter {
     }
 
     @Override
-    public void hide() { Gdx.input.setInputProcessor(null); }
+    public void hide() {
+        Gdx.input.setInputProcessor(null);
+        Gdx.input.setOnscreenKeyboardVisible(false);
+    }
 
     @Override
     public void resize(int width, int height) {
@@ -177,6 +180,10 @@ public class TitleScreen extends ScreenAdapter {
         } else {
             drawSkinPicker();
         }
+        // Topmost: in-game name editor overlay (modal). Drawn last so it sits
+        // above the rest of the menu, including the skin picker if both were
+        // somehow open (only one can be at a time today, but be safe).
+        if (nameEditorOpen) drawNameEditor();
         app.batch.end();
     }
 
@@ -366,20 +373,109 @@ public class TitleScreen extends ScreenAdapter {
             app.audio.isMuted() ? new Color(0.8f, 0.6f, 0.6f, 1f) : Constants.CYAN);
     }
 
-    /**
-     * Pops the native text-input dialog (libGDX wraps Android dialog / Swing
-     * on desktop). Stored name is uppercased + length-capped so global rows
-     * stay consistent across submissions.
-     */
-    private void promptForName() {
-        Gdx.input.getTextInput(new com.badlogic.gdx.Input.TextInputListener() {
-            @Override
-            public void input(String text) {
-                String sanitized = HighScoreEntry.sanitizeName(text);
-                app.save.setPlayerName(sanitized);
-            }
-            @Override public void canceled() {}
-        }, "Set leaderboard name", app.save.getPlayerName(), "Up to " + HighScoreEntry.MAX_NAME_LENGTH + " chars");
+    // ---------------------------------------------------------------------
+    // Name editor (in-game overlay)
+    // ---------------------------------------------------------------------
+
+    private void openNameEditor() {
+        nameEditorOpen = true;
+        nameDraft.setLength(0);
+        nameDraft.append(app.save.getPlayerName());
+        // On Android this makes the soft keyboard slide up so the user can type
+        // into our overlay. No-op on desktop, where physical keys already work.
+        Gdx.input.setOnscreenKeyboardVisible(true);
+    }
+
+    private void closeNameEditor(boolean save) {
+        if (save) {
+            app.save.setPlayerName(HighScoreEntry.sanitizeName(nameDraft.toString()));
+            app.audio.playPickup();
+        } else {
+            app.audio.playMenuClick();
+        }
+        nameEditorOpen = false;
+        Gdx.input.setOnscreenKeyboardVisible(false);
+    }
+
+    private boolean handleNameEditorTouch(float x, float y) {
+        if (nameOkBtn.contains(x, y))     { closeNameEditor(true);  return true; }
+        if (nameCancelBtn.contains(x, y)) { closeNameEditor(false); return true; }
+        if (nameClearBtn.contains(x, y))  {
+            nameDraft.setLength(0);
+            app.audio.playMenuClick();
+            return true;
+        }
+        // Re-tap the field area to (re-)open the soft keyboard on Android.
+        Gdx.input.setOnscreenKeyboardVisible(true);
+        return true;
+    }
+
+    private void drawNameEditor() {
+        // Full-screen dimmer.
+        app.batch.setColor(0f, 0f, 0f, 0.78f);
+        app.batch.draw(app.pixel, 0, 0, Constants.WORLD_W, Constants.WORLD_H);
+        app.batch.setColor(Color.WHITE);
+
+        // Panel laid out top-down so each row is obvious. Coordinates count
+        // downward from the panel's top edge for readability.
+        float panelW = 300f, panelH = 270f;
+        float panelX = (Constants.WORLD_W - panelW) * 0.5f;
+        float panelY = (Constants.WORLD_H - panelH) * 0.5f;
+        UI.glowRect(app.batch, app.pixel, panelX, panelY, panelW, panelH,
+            new Color(0.16f, 0.08f, 0.30f, 1f), 0.95f);
+
+        float topY = panelY + panelH;
+
+        UI.drawCentered(app.batch, app.fontMedium, "ENTER NAME",
+            Constants.WORLD_W * 0.5f, topY - 30f, Constants.YELLOW);
+        UI.drawCentered(app.batch, app.fontSmall,
+            "TYPE  -  ENTER OK  -  ESC CANCEL",
+            Constants.WORLD_W * 0.5f, topY - 56f,
+            new Color(0.8f, 0.8f, 0.95f, 0.75f));
+
+        // Text field with blinking cursor.
+        float boxW = 240f, boxH = 50f;
+        float boxX = (Constants.WORLD_W - boxW) * 0.5f;
+        float boxY = topY - 130f;
+        UI.glowRect(app.batch, app.pixel, boxX, boxY, boxW, boxH,
+            new Color(0.05f, 0.02f, 0.10f, 1f), 0.95f);
+        boolean showCursor = ((int) (time * 2f)) % 2 == 0;
+        String shown = nameDraft.toString();
+        String withCursor = shown + (showCursor && nameDraft.length() < HighScoreEntry.MAX_NAME_LENGTH ? "_" : "");
+        UI.drawCentered(app.batch, app.fontMedium,
+            withCursor.isEmpty() ? (showCursor ? "_" : " ") : withCursor,
+            boxX + boxW * 0.5f, boxY + boxH * 0.5f, Constants.CYAN);
+        // Char counter just below the input box (right-aligned).
+        UI.drawRight(app.batch, app.fontSmall,
+            nameDraft.length() + " / " + HighScoreEntry.MAX_NAME_LENGTH,
+            boxX + boxW, boxY - 12f,
+            new Color(0.7f, 0.7f, 0.85f, 0.7f));
+
+        // CLEAR sits between the input and the OK/CANCEL row.
+        nameClearBtn.set(panelX + (panelW - 100f) * 0.5f, panelY + 86f, 100f, 32f);
+        UI.glowRect(app.batch, app.pixel, nameClearBtn.x, nameClearBtn.y, nameClearBtn.width, nameClearBtn.height,
+            new Color(0.30f, 0.15f, 0.30f, 1f), 0.9f);
+        UI.drawCentered(app.batch, app.fontSmall, "CLEAR",
+            nameClearBtn.x + nameClearBtn.width * 0.5f, nameClearBtn.y + nameClearBtn.height * 0.5f,
+            Constants.WHITE);
+
+        float btnW = 120f, btnH = 44f, gap = 18f;
+        float btnRowY = panelY + 24f;
+        float btnRowX = (Constants.WORLD_W - (2 * btnW + gap)) * 0.5f;
+        nameCancelBtn.set(btnRowX, btnRowY, btnW, btnH);
+        nameOkBtn.set(btnRowX + btnW + gap, btnRowY, btnW, btnH);
+
+        UI.glowRect(app.batch, app.pixel, nameCancelBtn.x, nameCancelBtn.y, nameCancelBtn.width, nameCancelBtn.height,
+            new Color(0.25f, 0.13f, 0.30f, 1f), 0.9f);
+        UI.drawCentered(app.batch, app.fontSmall, "CANCEL",
+            nameCancelBtn.x + nameCancelBtn.width * 0.5f, nameCancelBtn.y + nameCancelBtn.height * 0.5f,
+            Constants.WHITE);
+
+        UI.glowRect(app.batch, app.pixel, nameOkBtn.x, nameOkBtn.y, nameOkBtn.width, nameOkBtn.height,
+            Constants.CYAN, 0.95f);
+        UI.drawCentered(app.batch, app.fontMedium, "OK",
+            nameOkBtn.x + nameOkBtn.width * 0.5f, nameOkBtn.y + nameOkBtn.height * 0.5f,
+            new Color(0.05f, 0.04f, 0.10f, 1f));
     }
 
     private void drawSkinPicker() {
