@@ -83,11 +83,19 @@ public class GameScreen extends ScreenAdapter {
     private final String seedLabel;
 
     /** Cached screen-space buttons (in world UI coords). */
-    private final Rectangle audioBtn = new Rectangle();
     private final Rectangle menuBtn  = new Rectangle();
+    private final Rectangle settingsAudioBtn = new Rectangle();
+    private final Rectangle settingsAiBtn    = new Rectangle();
+    private final Rectangle settingsResumeBtn = new Rectangle();
+    private final Rectangle settingsQuitBtn  = new Rectangle();
     private final Rectangle retryBtn = new Rectangle();
     private final Rectangle quitBtn  = new Rectangle();
     private final Rectangle scoresBtn = new Rectangle();
+
+    /** In-game pause menu (hamburger). */
+    private boolean settingsOpen;
+    /** Countdown until the next AI-assist jump. */
+    private float aiAssistTimer;
 
     /** Pre-allocated scratch for input - world unprojection. */
     private final Vector3 tmpUnproject = new Vector3();
@@ -140,6 +148,8 @@ public class GameScreen extends ScreenAdapter {
         globalRank = 0;
         globalSubmitState = SubmitState.NONE;
         globalError = null;
+        settingsOpen = false;
+        aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
     }
 
     @Override
@@ -195,9 +205,26 @@ public class GameScreen extends ScreenAdapter {
         }
 
         // ----- gameplay tick -----
+        if (settingsOpen) {
+            particles.update(dt);
+            shake.update(dt);
+            updateCamera(dt);
+            return;
+        }
+
         tower.generateUpTo(player.y + Constants.WORLD_H);
         tower.cullBelow(deathLineY - 200f);
         tower.update(gameDt);
+
+        boolean assistJumped = false;
+        if (app.save.isAiAssistOn()) {
+            aiAssistTimer -= gameDt;
+            if (aiAssistTimer <= 0f) {
+                aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
+                assistJumped = tryAiAssistJump();
+            }
+        }
+
         player.update(gameDt, tower);
 
         // Process landing / jump events for FX + sound + scoring.
@@ -216,7 +243,7 @@ public class GameScreen extends ScreenAdapter {
                 combo = Math.max(0, combo - 1);
             }
         }
-        if (player.jumpedThisFrame) {
+        if (player.jumpedThisFrame || assistJumped) {
             Color c = player.skin.glow;
             particles.dust(player.x, player.y - 1f, 8, c, -1f);
             particles.dust(player.x, player.y - 1f, 8, c, +1f);
@@ -453,6 +480,7 @@ public class GameScreen extends ScreenAdapter {
         app.batch.setProjectionMatrix(uiCamera.combined);
         app.batch.begin();
         drawHUD();
+        if (settingsOpen) drawSettingsOverlay();
         if (state == State.GAME_OVER) {
             if (!recordedGameOver) { onGameOver(); recordedGameOver = true; }
             drawGameOverOverlay();
@@ -625,13 +653,18 @@ public class GameScreen extends ScreenAdapter {
             UI.glowRect(app.batch, app.pixel, bx, by, barW * chargeFrac, barH, charge, 1f);
         }
 
-        // Audio toggle top-right.
-        audioBtn.set(Constants.WORLD_W - 50f, Constants.WORLD_H - 50f, 38f, 38f);
-        drawIconButton(audioBtn, app.audio.isMuted() ? "OFF" : "ON ");
-
-        // Menu button top-left.
+        // Hamburger menu top-left.
         menuBtn.set(12f, Constants.WORLD_H - 50f, 38f, 38f);
-        drawIconButton(menuBtn, "MENU");
+        drawHamburgerButton(menuBtn);
+
+        // AI assist countdown (subtle, only when enabled and running).
+        if (app.save.isAiAssistOn() && state == State.RUNNING && !settingsOpen) {
+            int secs = Math.max(0, (int) Math.ceil(aiAssistTimer));
+            Color ac = new Color(Constants.MAGENTA);
+            ac.a = 0.75f;
+            UI.drawCentered(app.batch, app.fontSmall, "AI " + secs + "s",
+                Constants.WORLD_W - 42f, Constants.WORLD_H - 36f, ac);
+        }
 
         // Daily challenge tag (right under menu).
         if (dailyChallenge) {
@@ -665,6 +698,156 @@ public class GameScreen extends ScreenAdapter {
             new Color(0.13f, 0.07f, 0.22f, 1f), 0.85f);
         UI.drawCentered(app.batch, app.fontSmall, label,
             r.x + r.width * 0.5f, r.y + r.height * 0.5f, Constants.WHITE);
+    }
+
+    private void drawHamburgerButton(Rectangle r) {
+        UI.glowRect(app.batch, app.pixel, r.x, r.y, r.width, r.height,
+            new Color(0.13f, 0.07f, 0.22f, 1f), 0.85f);
+        float barW = r.width * 0.52f;
+        float barH = 3f;
+        float gap = 5f;
+        float cx = r.x + r.width * 0.5f;
+        float y0 = r.y + r.height * 0.5f - barH - gap;
+        app.batch.setColor(Constants.WHITE);
+        for (int i = 0; i < 3; i++) {
+            app.batch.draw(app.pixel, cx - barW * 0.5f, y0 + i * (barH + gap), barW, barH);
+        }
+        app.batch.setColor(Color.WHITE);
+    }
+
+    private void layoutSettingsButtons() {
+        float cx = Constants.WORLD_W * 0.5f;
+        float cy = Constants.WORLD_H * 0.5f;
+        float rowW = 240f;
+        float rowH = 44f;
+        float gap = 12f;
+        float y = cy + 70f;
+        settingsAudioBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
+        y -= rowH + gap;
+        settingsAiBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
+        y -= rowH + gap + 8f;
+        settingsResumeBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
+        y -= rowH + gap;
+        settingsQuitBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
+    }
+
+    private void drawSettingsOverlay() {
+        app.batch.setColor(0f, 0f, 0f, 0.55f);
+        app.batch.draw(app.pixel, 0, 0, Constants.WORLD_W, Constants.WORLD_H);
+        app.batch.setColor(Color.WHITE);
+
+        float panelW = 280f;
+        float panelH = 320f;
+        float px = (Constants.WORLD_W - panelW) * 0.5f;
+        float py = (Constants.WORLD_H - panelH) * 0.5f;
+        UI.glowRect(app.batch, app.pixel, px, py, panelW, panelH,
+            new Color(0.10f, 0.06f, 0.18f, 1f), 0.95f);
+
+        UI.drawCentered(app.batch, app.fontMedium, "SETTINGS",
+            Constants.WORLD_W * 0.5f, py + panelH - 36f, Constants.CYAN);
+
+        layoutSettingsButtons();
+        drawSettingsRow(settingsAudioBtn, "AUDIO",
+            app.audio.isMuted() ? "OFF" : "ON");
+        drawSettingsRow(settingsAiBtn, "AI ASSIST",
+            app.save.isAiAssistOn() ? "ON" : "OFF");
+
+        UI.glowRect(app.batch, app.pixel,
+            settingsResumeBtn.x, settingsResumeBtn.y,
+            settingsResumeBtn.width, settingsResumeBtn.height, Constants.CYAN, 0.9f);
+        UI.drawCentered(app.batch, app.fontSmall, "RESUME",
+            settingsResumeBtn.x + settingsResumeBtn.width * 0.5f,
+            settingsResumeBtn.y + settingsResumeBtn.height * 0.5f,
+            new Color(0.05f, 0.04f, 0.10f, 1f));
+
+        UI.glowRect(app.batch, app.pixel,
+            settingsQuitBtn.x, settingsQuitBtn.y,
+            settingsQuitBtn.width, settingsQuitBtn.height,
+            new Color(0.20f, 0.10f, 0.30f, 1f), 0.85f);
+        UI.drawCentered(app.batch, app.fontSmall, "QUIT TO MENU",
+            settingsQuitBtn.x + settingsQuitBtn.width * 0.5f,
+            settingsQuitBtn.y + settingsQuitBtn.height * 0.5f, Constants.WHITE);
+    }
+
+    private void drawSettingsRow(Rectangle r, String label, String value) {
+        UI.glowRect(app.batch, app.pixel, r.x, r.y, r.width, r.height,
+            new Color(0.16f, 0.09f, 0.28f, 1f), 0.88f);
+        UI.drawCentered(app.batch, app.fontSmall, label + "  " + value,
+            r.x + r.width * 0.5f, r.y + r.height * 0.5f, Constants.WHITE);
+    }
+
+    private void openSettings() {
+        settingsOpen = true;
+        activePointer = -1;
+        player.cancelCharge();
+        layoutSettingsButtons();
+    }
+
+    private void closeSettings() {
+        settingsOpen = false;
+        activePointer = -1;
+    }
+
+    private boolean handleSettingsTouch(float x, float y) {
+        layoutSettingsButtons();
+        if (settingsAudioBtn.contains(x, y)) {
+            app.audio.toggleMuted();
+            app.audio.playMenuClick();
+            return true;
+        }
+        if (settingsAiBtn.contains(x, y)) {
+            app.save.setAiAssistOn(!app.save.isAiAssistOn());
+            if (app.save.isAiAssistOn()) aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
+            app.audio.playMenuClick();
+            return true;
+        }
+        if (settingsResumeBtn.contains(x, y)) {
+            app.audio.playMenuClick();
+            closeSettings();
+            return true;
+        }
+        if (settingsQuitBtn.contains(x, y)) {
+            app.audio.playMenuClick();
+            app.switchScreen(new TitleScreen(app));
+            return true;
+        }
+        // Tap outside panel rows still consumes input (paused).
+        return true;
+    }
+
+    /** Nearest solid platform above the player's feet. */
+    private Platform findNearestPlatformAbove() {
+        Platform best = null;
+        float bestDist2 = Float.MAX_VALUE;
+        float px = player.x;
+        float py = player.y;
+        for (int i = 0; i < tower.platforms.size; i++) {
+            Platform p = tower.platforms.get(i);
+            if (p.dead || !p.isSolid()) continue;
+            if (p.type == PlatformType.ROTATING) {
+                float absAngle = Math.abs(((p.angleDeg % 180f) + 180f) % 180f - 90f);
+                if (absAngle < 55f) continue;
+            }
+            float top = p.y + p.h;
+            if (top <= py + 8f) continue;
+            float cx = p.x + p.w * 0.5f;
+            float dx = cx - px;
+            float dy = top - py;
+            float d2 = dx * dx + dy * dy;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    private boolean tryAiAssistJump() {
+        Platform target = findNearestPlatformAbove();
+        if (target == null) return false;
+        float aimX = target.x + target.w * 0.5f;
+        float aimY = target.y + target.h + 50f;
+        return player.assistJumpToward(aimX, aimY, 0.88f);
     }
 
     private void drawGameOverOverlay() {
@@ -798,15 +981,13 @@ public class GameScreen extends ScreenAdapter {
                 return true;
             }
 
-            // RUNNING state - UI buttons first, then jump charge.
-            if (audioBtn.contains(tmpUnproject.x, tmpUnproject.y)) {
-                app.audio.toggleMuted();
-                app.audio.playMenuClick();
-                return true;
+            // RUNNING / DYING — settings overlay or hamburger.
+            if (settingsOpen) {
+                return handleSettingsTouch(tmpUnproject.x, tmpUnproject.y);
             }
             if (menuBtn.contains(tmpUnproject.x, tmpUnproject.y)) {
                 app.audio.playMenuClick();
-                app.switchScreen(new TitleScreen(app));
+                openSettings();
                 return true;
             }
             if (state == State.DYING) return true;
@@ -824,7 +1005,7 @@ public class GameScreen extends ScreenAdapter {
 
         @Override
         public boolean touchDragged(int screenX, int screenY, int pointer) {
-            if (pointer != activePointer || state != State.RUNNING) return false;
+            if (settingsOpen || pointer != activePointer || state != State.RUNNING) return false;
             tmpUnproject.set(screenX, screenY, 0f);
             viewport.unproject(tmpUnproject);
             float ax = tmpUnproject.x;
@@ -845,6 +1026,14 @@ public class GameScreen extends ScreenAdapter {
         @Override
         public boolean keyDown(int keycode) {
             if (keycode == Input.Keys.BACK || keycode == Input.Keys.ESCAPE) {
+                if (settingsOpen) {
+                    closeSettings();
+                    return true;
+                }
+                if (state == State.RUNNING || state == State.DYING) {
+                    openSettings();
+                    return true;
+                }
                 app.switchScreen(new TitleScreen(app));
                 return true;
             }

@@ -125,6 +125,23 @@ public class Player {
         chargeTime = 0f;
     }
 
+    /**
+     * AI assist: fires a jump toward a world point at the given strength [0..1].
+     * Only works when grounded, in coyote time, or on a wall — same rules as a manual jump.
+     *
+     * @return true if a jump was fired
+     */
+    public boolean assistJumpToward(float worldAimX, float worldAimY, float strength) {
+        if (!alive) return false;
+        if (!grounded && coyoteTimer <= 0f && wallContact == 0) return false;
+        if (charging) cancelCharge();
+        wallChargeStartedLeft  = wallContact == -1;
+        wallChargeStartedRight = wallContact == +1;
+        aim.set(worldAimX, worldAimY);
+        fireJump(strength);
+        return true;
+    }
+
     /** Cancels the charge without firing — used when the player dies mid-charge. */
     public void cancelCharge() {
         charging = false;

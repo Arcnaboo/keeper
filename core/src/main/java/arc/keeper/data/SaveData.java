@@ -18,6 +18,7 @@ public class SaveData {
     private static final String K_ACTIVE_SKIN    = "activeSkin";
     private static final String K_UNLOCKED       = "skin.";          // prefix per skin id
     private static final String K_AUDIO_ON       = "audioOn";
+    private static final String K_AI_ASSIST_ON   = "aiAssistOn";
     private static final String K_DAILY_SEED     = "dailySeed";
     private static final String K_DAILY_BEST     = "dailyBest";
     private static final String K_PLAYER_NAME    = "playerName";
@@ -36,6 +37,7 @@ public class SaveData {
     public float getTotalDistance()   { return prefs.getFloat(K_TOTAL_DISTANCE, 0f); }
     public String getActiveSkin()     { return prefs.getString(K_ACTIVE_SKIN, "cyan"); }
     public boolean isAudioOn()        { return prefs.getBoolean(K_AUDIO_ON, true); }
+    public boolean isAiAssistOn()     { return prefs.getBoolean(K_AI_ASSIST_ON, false); }
     public long getDailySeed()        { return prefs.getLong(K_DAILY_SEED, 0L); }
     public int  getDailyBest()        { return prefs.getInteger(K_DAILY_BEST, 0); }
     public String getPlayerName()     { return HighScoreEntry.sanitizeName(prefs.getString(K_PLAYER_NAME, "ARC")); }
@@ -60,6 +62,11 @@ public class SaveData {
 
     public void setAudioOn(boolean on) {
         prefs.putBoolean(K_AUDIO_ON, on);
+        prefs.flush();
+    }
+
+    public void setAiAssistOn(boolean on) {
+        prefs.putBoolean(K_AI_ASSIST_ON, on);
         prefs.flush();
     }
 
