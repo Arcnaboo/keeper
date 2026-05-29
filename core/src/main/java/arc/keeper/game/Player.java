@@ -126,19 +126,66 @@ public class Player {
     }
 
     /**
-     * AI assist: fires a jump toward a world point at the given strength [0..1].
-     * Only works when grounded, in coyote time, or on a wall — same rules as a manual jump.
+     * Assisted jump: smooth ballistic arc to land on {@code landTopY} at {@code landCenterX}.
+     * Ignores aim and charge — used when AI assist hijacks the player's next release.
      *
      * @return true if a jump was fired
      */
-    public boolean assistJumpToward(float worldAimX, float worldAimY, float strength) {
+    public boolean fireAssistedJumpTo(float landCenterX, float landTopY) {
         if (!alive) return false;
         if (!grounded && coyoteTimer <= 0f && wallContact == 0) return false;
-        if (charging) cancelCharge();
+
+        charging = false;
+        chargeTime = 0f;
         wallChargeStartedLeft  = wallContact == -1;
         wallChargeStartedRight = wallContact == +1;
-        aim.set(worldAimX, worldAimY);
-        fireJump(strength);
+
+        float dx = landCenterX - x;
+        float dy = landTopY - y;
+        float horiz = Math.abs(dx);
+        float g = Constants.GRAVITY;
+
+        // Pick flight time for a natural arc (tuned to feel like a strong manual jump).
+        float bestT = 0.38f + horiz / 820f + Math.max(0f, dy) / 1500f;
+        bestT = MathUtils.clamp(bestT, 0.30f, 0.68f);
+        float bestErr = Float.MAX_VALUE;
+        for (int i = 0; i < 9; i++) {
+            float t = 0.28f + i * 0.05f;
+            float vy0 = (dy + 0.5f * g * t * t) / t;
+            if (vy0 < 120f) continue;
+            float simY = y + vy0 * t - 0.5f * g * t * t;
+            float err = Math.abs(simY - landTopY);
+            if (err < bestErr) {
+                bestErr = err;
+                bestT = t;
+            }
+        }
+
+        float vy0 = (dy + 0.5f * g * bestT * bestT) / bestT;
+        float vx0 = dx / bestT;
+        if (wallChargeStartedLeft)  vx0 = Math.max(vx0, 200f);
+        if (wallChargeStartedRight) vx0 = Math.min(vx0, -200f);
+
+        vx = MathUtils.clamp(vx0, -Constants.MAX_HORIZONTAL_SPEED, Constants.MAX_HORIZONTAL_SPEED);
+        vy = MathUtils.clamp(vy0, 180f, Constants.MAX_VERTICAL_SPEED);
+
+        float speed = (float) Math.sqrt(vx * vx + vy * vy);
+        float span = Constants.JUMP_MAX_IMPULSE - Constants.JUMP_MIN_IMPULSE;
+        lastJumpStrength = span > 1f
+            ? MathUtils.clamp((speed - Constants.JUMP_MIN_IMPULSE) / span, 0.78f, 1f)
+            : 0.85f;
+
+        aim.set(landCenterX, landTopY + 36f);
+        squashX = 0.75f;
+        squashY = 1.30f;
+        grounded = false;
+        wallContact = 0;
+        coyoteTimer = 0f;
+        jumpBufferTimer = 0f;
+        wallChargeStartedLeft = wallChargeStartedRight = false;
+        jumpCount++;
+        jumpedThisFrame = true;
+        facing = vx >= 0 ? 1f : -1f;
         return true;
     }
 

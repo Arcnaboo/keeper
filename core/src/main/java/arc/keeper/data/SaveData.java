@@ -3,6 +3,8 @@ package arc.keeper.data;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Preferences;
 
+import arc.keeper.Constants;
+
 /**
  * Thin wrapper around libGDX {@link Preferences} for cross-platform persistence
  * (uses an XML file on desktop and SharedPreferences on Android).
@@ -18,7 +20,8 @@ public class SaveData {
     private static final String K_ACTIVE_SKIN    = "activeSkin";
     private static final String K_UNLOCKED       = "skin.";          // prefix per skin id
     private static final String K_AUDIO_ON       = "audioOn";
-    private static final String K_AI_ASSIST_ON   = "aiAssistOn";
+    private static final String K_AI_ASSIST_ON       = "aiAssistOn";
+    private static final String K_AI_ASSIST_COOLDOWN = "aiAssistCooldown";
     private static final String K_DAILY_SEED     = "dailySeed";
     private static final String K_DAILY_BEST     = "dailyBest";
     private static final String K_PLAYER_NAME    = "playerName";
@@ -68,6 +71,29 @@ public class SaveData {
     public void setAiAssistOn(boolean on) {
         prefs.putBoolean(K_AI_ASSIST_ON, on);
         prefs.flush();
+    }
+
+    /** Seconds between assisted jumps (must be one of {@link Constants#AI_ASSIST_COOLDOWN_OPTIONS}). */
+    public int getAiAssistCooldownSec() {
+        int v = prefs.getInteger(K_AI_ASSIST_COOLDOWN, Constants.AI_ASSIST_COOLDOWN_DEFAULT);
+        for (int opt : Constants.AI_ASSIST_COOLDOWN_OPTIONS) {
+            if (opt == v) return v;
+        }
+        return Constants.AI_ASSIST_COOLDOWN_DEFAULT;
+    }
+
+    /** Cycles cooldown to the next preset; returns the new value. */
+    public int cycleAiAssistCooldown() {
+        int cur = getAiAssistCooldownSec();
+        int[] opts = Constants.AI_ASSIST_COOLDOWN_OPTIONS;
+        int idx = 0;
+        for (int i = 0; i < opts.length; i++) {
+            if (opts[i] == cur) { idx = i; break; }
+        }
+        int next = opts[(idx + 1) % opts.length];
+        prefs.putInteger(K_AI_ASSIST_COOLDOWN, next);
+        prefs.flush();
+        return next;
     }
 
     public void setDaily(long seed, int best) {

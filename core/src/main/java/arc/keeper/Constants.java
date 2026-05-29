@@ -41,8 +41,9 @@ public final class Constants {
     /** Time in seconds to fully charge the jump bar. */
     public static final float JUMP_CHARGE_TIME = 0.55f;
 
-    /** Seconds between automatic jumps when AI assist is enabled. */
-    public static final float AI_ASSIST_INTERVAL = 60f;
+    /** Cooldown choices (seconds) between assisted jumps — cycled in settings. */
+    public static final int[] AI_ASSIST_COOLDOWN_OPTIONS = { 30, 45, 60, 90, 120 };
+    public static final int AI_ASSIST_COOLDOWN_DEFAULT = 60;
 
     /** Wall-jump horizontal kick (pushed away from the wall). */
     public static final float WALL_JUMP_HORIZONTAL_BOOST = 280f;

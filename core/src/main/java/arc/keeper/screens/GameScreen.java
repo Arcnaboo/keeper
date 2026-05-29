@@ -86,6 +86,7 @@ public class GameScreen extends ScreenAdapter {
     private final Rectangle menuBtn  = new Rectangle();
     private final Rectangle settingsAudioBtn = new Rectangle();
     private final Rectangle settingsAiBtn    = new Rectangle();
+    private final Rectangle settingsCooldownBtn = new Rectangle();
     private final Rectangle settingsResumeBtn = new Rectangle();
     private final Rectangle settingsQuitBtn  = new Rectangle();
     private final Rectangle retryBtn = new Rectangle();
@@ -94,8 +95,8 @@ public class GameScreen extends ScreenAdapter {
 
     /** In-game pause menu (hamburger). */
     private boolean settingsOpen;
-    /** Countdown until the next AI-assist jump. */
-    private float aiAssistTimer;
+    /** Seconds until the next jump can be assisted (0 = ready). */
+    private float aiAssistCooldownTimer;
 
     /** Pre-allocated scratch for input - world unprojection. */
     private final Vector3 tmpUnproject = new Vector3();
@@ -149,7 +150,7 @@ public class GameScreen extends ScreenAdapter {
         globalSubmitState = SubmitState.NONE;
         globalError = null;
         settingsOpen = false;
-        aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
+        aiAssistCooldownTimer = 0f;
     }
 
     @Override
@@ -216,13 +217,8 @@ public class GameScreen extends ScreenAdapter {
         tower.cullBelow(deathLineY - 200f);
         tower.update(gameDt);
 
-        boolean assistJumped = false;
-        if (app.save.isAiAssistOn()) {
-            aiAssistTimer -= gameDt;
-            if (aiAssistTimer <= 0f) {
-                aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
-                assistJumped = tryAiAssistJump();
-            }
+        if (app.save.isAiAssistOn() && aiAssistCooldownTimer > 0f) {
+            aiAssistCooldownTimer = Math.max(0f, aiAssistCooldownTimer - gameDt);
         }
 
         player.update(gameDt, tower);
@@ -243,7 +239,7 @@ public class GameScreen extends ScreenAdapter {
                 combo = Math.max(0, combo - 1);
             }
         }
-        if (player.jumpedThisFrame || assistJumped) {
+        if (player.jumpedThisFrame) {
             Color c = player.skin.glow;
             particles.dust(player.x, player.y - 1f, 8, c, -1f);
             particles.dust(player.x, player.y - 1f, 8, c, +1f);
@@ -657,13 +653,19 @@ public class GameScreen extends ScreenAdapter {
         menuBtn.set(12f, Constants.WORLD_H - 50f, 38f, 38f);
         drawHamburgerButton(menuBtn);
 
-        // AI assist countdown (subtle, only when enabled and running).
+        // AI assist hint — subtle; ready pulse vs cooldown (hidden-cheat vibe).
         if (app.save.isAiAssistOn() && state == State.RUNNING && !settingsOpen) {
-            int secs = Math.max(0, (int) Math.ceil(aiAssistTimer));
             Color ac = new Color(Constants.MAGENTA);
-            ac.a = 0.75f;
-            UI.drawCentered(app.batch, app.fontSmall, "AI " + secs + "s",
-                Constants.WORLD_W - 42f, Constants.WORLD_H - 36f, ac);
+            if (isAiAssistReady()) {
+                ac.a = 0.35f + 0.25f * (float) Math.sin(System.currentTimeMillis() * 0.005);
+                UI.drawCentered(app.batch, app.fontSmall, "·",
+                    Constants.WORLD_W - 28f, Constants.WORLD_H - 36f, ac);
+            } else {
+                ac.a = 0.55f;
+                int secs = (int) Math.ceil(aiAssistCooldownTimer);
+                UI.drawCentered(app.batch, app.fontSmall, secs + "s",
+                    Constants.WORLD_W - 32f, Constants.WORLD_H - 36f, ac);
+            }
         }
 
         // Daily challenge tag (right under menu).
@@ -721,10 +723,12 @@ public class GameScreen extends ScreenAdapter {
         float rowW = 240f;
         float rowH = 44f;
         float gap = 12f;
-        float y = cy + 70f;
+        float y = cy + 88f;
         settingsAudioBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
         y -= rowH + gap;
         settingsAiBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
+        y -= rowH + gap;
+        settingsCooldownBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
         y -= rowH + gap + 8f;
         settingsResumeBtn.set(cx - rowW * 0.5f, y, rowW, rowH);
         y -= rowH + gap;
@@ -737,7 +741,7 @@ public class GameScreen extends ScreenAdapter {
         app.batch.setColor(Color.WHITE);
 
         float panelW = 280f;
-        float panelH = 320f;
+        float panelH = 368f;
         float px = (Constants.WORLD_W - panelW) * 0.5f;
         float py = (Constants.WORLD_H - panelH) * 0.5f;
         UI.glowRect(app.batch, app.pixel, px, py, panelW, panelH,
@@ -751,6 +755,8 @@ public class GameScreen extends ScreenAdapter {
             app.audio.isMuted() ? "OFF" : "ON");
         drawSettingsRow(settingsAiBtn, "AI ASSIST",
             app.save.isAiAssistOn() ? "ON" : "OFF");
+        drawSettingsRow(settingsCooldownBtn, "ASSIST EVERY",
+            app.save.getAiAssistCooldownSec() + "s");
 
         UI.glowRect(app.batch, app.pixel,
             settingsResumeBtn.x, settingsResumeBtn.y,
@@ -797,7 +803,12 @@ public class GameScreen extends ScreenAdapter {
         }
         if (settingsAiBtn.contains(x, y)) {
             app.save.setAiAssistOn(!app.save.isAiAssistOn());
-            if (app.save.isAiAssistOn()) aiAssistTimer = Constants.AI_ASSIST_INTERVAL;
+            if (app.save.isAiAssistOn()) aiAssistCooldownTimer = 0f;
+            app.audio.playMenuClick();
+            return true;
+        }
+        if (settingsCooldownBtn.contains(x, y)) {
+            app.save.cycleAiAssistCooldown();
             app.audio.playMenuClick();
             return true;
         }
@@ -815,39 +826,52 @@ public class GameScreen extends ScreenAdapter {
         return true;
     }
 
-    /** Nearest solid platform above the player's feet. */
-    private Platform findNearestPlatformAbove() {
+    private boolean isAiAssistReady() {
+        return app.save.isAiAssistOn() && aiAssistCooldownTimer <= 0f;
+    }
+
+    /** Next solid platform directly above the player (skips the one they're standing on). */
+    private Platform findNextPlatformAbove() {
         Platform best = null;
-        float bestDist2 = Float.MAX_VALUE;
-        float px = player.x;
+        float bestDy = Float.MAX_VALUE;
         float py = player.y;
+        Platform standing = player.grounded ? player.lastPlatform : null;
         for (int i = 0; i < tower.platforms.size; i++) {
             Platform p = tower.platforms.get(i);
-            if (p.dead || !p.isSolid()) continue;
+            if (p.dead || !p.isSolid() || p == standing) continue;
             if (p.type == PlatformType.ROTATING) {
                 float absAngle = Math.abs(((p.angleDeg % 180f) + 180f) % 180f - 90f);
                 if (absAngle < 55f) continue;
             }
             float top = p.y + p.h;
-            if (top <= py + 8f) continue;
-            float cx = p.x + p.w * 0.5f;
-            float dx = cx - px;
+            if (top <= py + 10f) continue;
             float dy = top - py;
-            float d2 = dx * dx + dy * dy;
-            if (d2 < bestDist2) {
-                bestDist2 = d2;
+            if (dy < bestDy) {
+                bestDy = dy;
                 best = p;
             }
         }
         return best;
     }
 
-    private boolean tryAiAssistJump() {
-        Platform target = findNearestPlatformAbove();
-        if (target == null) return false;
-        float aimX = target.x + target.w * 0.5f;
-        float aimY = target.y + target.h + 50f;
-        return player.assistJumpToward(aimX, aimY, 0.88f);
+    /**
+     * Player released a charge — if assist is ready, hijack into a smooth arc to the next platform.
+     * Otherwise a normal jump.
+     */
+    private void releasePlayerCharge() {
+        if (!player.charging) return;
+        if (isAiAssistReady()) {
+            Platform target = findNextPlatformAbove();
+            if (target != null) {
+                float landX = target.x + target.w * 0.5f;
+                float landY = target.y + target.h;
+                if (player.fireAssistedJumpTo(landX, landY)) {
+                    aiAssistCooldownTimer = app.save.getAiAssistCooldownSec();
+                    return;
+                }
+            }
+        }
+        player.releaseCharge();
     }
 
     private void drawGameOverOverlay() {
@@ -1019,7 +1043,7 @@ public class GameScreen extends ScreenAdapter {
         public boolean touchUp(int screenX, int screenY, int pointer, int button) {
             if (pointer != activePointer) return false;
             activePointer = -1;
-            if (state == State.RUNNING) player.releaseCharge();
+            if (state == State.RUNNING) releasePlayerCharge();
             return true;
         }
 
